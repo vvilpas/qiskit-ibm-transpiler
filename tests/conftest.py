@@ -103,6 +103,19 @@ def mock_runtime_service(monkeypatch, _fake_backend):
     return service
 
 
+@pytest.fixture(autouse=True)
+def mock_token(monkeypatch):
+    """Avoid reading real credentials during tests."""
+    monkeypatch.setattr(
+        "qiskit_ibm_transpiler.wrappers.base._get_token_from_system",
+        lambda: "FAKE",
+    )
+    monkeypatch.setattr(
+        "qiskit_ibm_transpiler.wrappers.function_transpile._get_token_from_system",
+        lambda: "FAKE",
+    )
+
+
 @pytest.fixture(scope="module")
 def test_eagle_backend(_fake_backend, test_eagle_backend_name):
     _fake_backend._backend_name = test_eagle_backend_name  # type: ignore[attr-defined]
