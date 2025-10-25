@@ -14,18 +14,29 @@
 
 import logging
 import os
+import sys
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import QuantumVolume
+from qiskit.providers.fake_provider import GenericBackendV2
+from qiskit.transpiler import CouplingMap
 
-from qiskit_ibm_transpiler.utils import (
+# Stub ``qiskit_serverless`` before importing the transpiler modules to avoid
+# pulling the heavy dependency into the test environment.
+sys.modules.setdefault(
+    "qiskit_serverless", SimpleNamespace(ServerlessClient=MagicMock())
+)
+
+import qiskit_ibm_transpiler.utils as utils  # noqa: E402
+from qiskit_ibm_transpiler.utils import (  # noqa: E402
     create_random_linear_function,
-    get_qiskit_runtime_service,
     get_qpy_from_circuit,
     random_clifford_from_linear_function,
-)
-from tests.utils import create_random_circuit_with_several_operators
+)  # noqa: E402
+from tests.utils import create_random_circuit_with_several_operators  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -73,11 +84,42 @@ def test_instance():
     return os.getenv("QISKIT_IBM_INSTANCE")
 
 
-@pytest.fixture(scope="module")
-def test_eagle_backend(test_eagle_backend_name):
-    backend = get_qiskit_runtime_service().backend(test_eagle_backend_name)
+@pytest.fixture(scope="session")
+def _fake_backend():
+    """Backend used to mock runtime service calls."""
+    return GenericBackendV2(
+        num_qubits=127,
+        coupling_map=CouplingMap.from_line(127),
+        seed=42,
+        noise_info=False,
+    )
 
-    return backend
+
+@pytest.fixture(autouse=True)
+def mock_runtime_service(monkeypatch, _fake_backend):
+    service = MagicMock()
+    service.backend.return_value = _fake_backend
+    monkeypatch.setattr(utils, "get_qiskit_runtime_service", lambda: service)
+    return service
+
+
+@pytest.fixture(autouse=True)
+def mock_token(monkeypatch):
+    """Avoid reading real credentials during tests."""
+    monkeypatch.setattr(
+        "qiskit_ibm_transpiler.wrappers.base._get_token_from_system",
+        lambda: "FAKE",
+    )
+    monkeypatch.setattr(
+        "qiskit_ibm_transpiler.wrappers.function_transpile._get_token_from_system",
+        lambda: "FAKE",
+    )
+
+
+@pytest.fixture(scope="module")
+def test_eagle_backend(_fake_backend, test_eagle_backend_name):
+    _fake_backend._backend_name = test_eagle_backend_name  # type: ignore[attr-defined]
+    return _fake_backend
 
 
 @pytest.fixture(scope="module")
